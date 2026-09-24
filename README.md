@@ -1,7 +1,8 @@
 <h1 align="center">CCtrl-V2</h1>
 
 <p align="center">
-  <strong>面向前两段连杆等长六自由度机械臂的关节空间遥操作控制器</strong>
+  <strong>六轴机械臂关节空间遥操作器</strong><br>
+  前两连杆等长 · 支持 XZY/ZXZ 腕部姿态表示
 </p>
 
 <p align="center">

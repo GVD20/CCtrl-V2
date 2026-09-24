@@ -1,7 +1,8 @@
 <h1 align="center">CCtrl-V2</h1>
 
 <p align="center">
-  <strong>A joint-space teleoperation controller for six-axis robot arms with equal-length first and second links</strong>
+  <strong>Joint-space teleoperation controller for six-axis robot arms</strong><br>
+  Equal-length first two links · XZY/ZXZ wrist-orientation output
 </p>
 
 <p align="center">
