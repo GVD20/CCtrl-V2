@@ -1,153 +1,137 @@
-# CCtrl-v2 用户手册
+# CCtrl-V2 用户手册
 
-本手册介绍 CCtrl-v2 的硬件资料、固件构建、校准、操作、RS232 对接与 USB 调试。
+[ZHCN](CCtrl-v2_User_Manual_ZHCN.md) | [EN](CCtrl-v2_User_Manual_EN.md)
 
-## 1. 用途和系统边界
+本文档描述 CCtrl-V2 的组成、运行结构、通信数据、设备配置和工具入口。字段的完整字节定义见[串口协议](SERIAL_PROTOCOL_ZHCN.md)，节点链路定义见[Daisy-Chain Protocol V2](PROTOCOL_V2.md)。
 
-CCtrl-v2 用六个磁编码器跟踪六自由度串联机构的 A1–A6 关节，面向前两段连杆等长的机械臂遥操作。A1–A3 描述主体机构关节，A4–A6 描述腕部；主控可将腕部 XZY 表示转换为 ZXZ 表示。RS232 输出关节计数、按键、摇杆和扳机数值。机械臂接收端负责结合实际连杆尺寸计算末端位置，并实现电机控制、零位、比例、方向、运动范围和失联处理。
+## 1. 项目定义
 
-系统由 ESP32-S3 主板、六个 AS5600 编码器节点以及一个手柄节点组成。编码器节点固件有 ATmega328P 与 CH32V006 两种实现；CH32V006 固件根据检测到的传感器进入 Encoder 或 Handle 模式。节点使用 250000 bps 菊花链串口，主控约 45 Hz 轮询；RS232 以约 30 Hz 发送业务帧。USB CDC 用于手动启动的调试和校准。
+CCtrl-V2 是面向前两段连杆等长的六自由度串联机械臂的关节空间遥操作控制器。六个磁编码器采集 A1–A6 关节位置；手柄节点采集摇杆、S1–S3 按键和磁感应扳机。ESP32-S3 主控完成节点枚举与轮询、校准、OLED 显示、腕部姿态表示转换和对外输出。
 
-| 数据路径 | 作用 | 速率 |
-|---|---|---:|
-| 编码器、Handle → ESP32-S3 | 逐节点枚举并采样原始数据 | 总线 250000 bps，约 45 Hz 轮询 |
-| ESP32-S3 → 机械臂接收端 | 输出关节、手柄与状态数据 | RS232 115200 8N1，约 30 Hz |
-| ESP32-S3 → 本地调试页 | 查看快照、编辑校准与休息位姿 | USB CDC 2000000 baud，约 15 Hz 快照 |
+系统输出的是控制器关节计数、输入设备数据和链路状态。目标机械臂的连杆尺寸、关节零位、传动比例、运动学和电机控制由机械臂接收端实现。
 
-六个 Encoder 在链路中的先后顺序决定 A1–A6。Handle 占一个物理节点位置，可以放在编码器节点之间；其数据进入单独的手柄字段。机械臂接收端根据 `node_valid_flags` 和 `diagnostic_flags` 判断每帧的可用性，再把计数映射为目标机构的关节命令。
-
-## 2. 发布资料与装配前检查
-
-| 资料 | 文件 | 用途 |
+| 组成 | 实现 | 数据 |
 |---|---|---|
-| 四板电子工程 | [CCtrl-v2.epro2](../hardware/electronics/jlc_eda_pro/CCtrl-v2.epro2) | 用 JLCEDA Pro 打开并核对主板、手柄模块 v2、带滑环的编码器节点板、滑环电刷 |
-| 完整机械装配 | [CCtrl-v2-assembly.step](../hardware/mechanical/cad/CCtrl-v2-assembly.step) | 查看整体外形与装配关系 |
-| 改进替换件 | [CCtrl-v2-replacement-parts.step](../hardware/mechanical/cad/CCtrl-v2-replacement-parts.step) | 对主模型中的部分零件做局部替换，包含内走线和稳定性改进 |
-| 外观参考 | [CCtrl-v2-cover.png](../hardware/mechanical/renders/CCtrl-v2-cover.png) | 透明背景渲染图 |
+| 主控 | ESP32-S3 主板 | 六轴校准值、菜单与输出状态 |
+| 关节节点 | 六个 AS5600 编码器节点 | 磁场状态与一圈 4096 计数的原始角度 |
+| 手柄节点 | Handle 模块 | 摇杆、按键和磁场 XYZ |
+| 对外接口 | RS232 | 约 30 Hz 的 RoboMaster `0x0302` 帧 |
+| 本地调试接口 | USB CDC | 手动启动的校准与状态快照 |
 
-在 JLCEDA Pro 中查看四板设计并导出制造文件；在 CAD 中查看完整装配和替换件，确认零件对应关系及配合尺寸。前两段连杆的轴心距、紧固件、线束和滑环选型以实际装配设计为准。制板与装配时核对公差、焊盘、网络、滑环通道以及电气连续性。
+## 2. 固件与运行结构
 
-建议按以下顺序准备硬件：
+- [`src/master`](../src/master)：ESP32-S3 的总线轮询、数据整合、校准、RS232 和 USB 调试实现。
+- [`src/node_avr`](../src/node_avr)：ATmega328P 编码器节点固件。
+- [`src/node_ch32v006`](../src/node_ch32v006)：CH32V006 节点固件，上电后按检测到的传感器进入 Encoder 或 Handle 模式。
+- [`src/shared`](../src/shared)：Daisy-Chain Protocol V2 与 CRC 公共实现。
+- [`src/ui_runtime`](../src/ui_runtime)、[`include`](../include)、[`lib`](../lib)：OLED UI、公共接口和本地库。
 
-1. 在 JLCEDA Pro 中打开工程，分别查看四块板的原理图与 PCB，记录连接器定义、供电电压、菊花链输入与输出方向。
-2. 在 CAD 中打开完整装配与替换件模型，按对应零件的几何形状确定替换位置，检查轴承座、滑环、电刷、运动间隙和内走线空间。
-3. 装配六个编码器节点及磁铁，逐一确认磁铁与 AS5600 对正；活动关节处给线束留出全行程余量。
-4. 对滑环的每个通道做导通与相邻通道绝缘检查，并在关节全行程内观察接触稳定性。
-5. 连接主板、节点与手柄后，再按第 4 节进行上电检查。电子工程与模型的详细入口见[硬件说明](../hardware/README.md)。
+主控按物理链路顺序枚举节点。Encoder 出现的先后顺序映射为 A1–A6；Handle 有独立的数据字段，处于编码器节点之间时也不改变轴号。总线轮询周期约 22.2 ms，业务帧输出周期约 33.3 ms。
 
-## 3. 固件准备
+## 3. 通信链路
 
-安装 PlatformIO 后，在仓库根目录分别构建：
+### 3.1 对外链路
 
-```powershell
-pio run -e master_esp32s3
-pio run -e encoder_node_atmega328p
-pio run -e encoder_node_ch32v006
+ESP32-S3 通过 RS232 以 115200 bps、8N1 向外部控制器单向输出业务帧。帧由 `0xA5` 帧头、长度、序号、CRC8、命令号 `0x0302`、30 字节载荷和 CRC16 组成，总长 39 字节。RS232 输出与 USB 调试各自使用独立的数据通道。
+
+### 3.2 主控与节点链路
+
+主控与节点之间的菊花链串口速率为 250000 bps。`ENUM_RESET (0x01)` 根据物理顺序分配地址，`POLL (0x02)` 逐节点收集记录。节点记录包含 ID、类型、平台和节点数据；Encoder 提供状态与原始角度，Handle 提供摇杆、磁场 XYZ 与按键。帧格式、节点状态位和 LED 行为见[节点协议](PROTOCOL_V2.md)。
+
+### 3.3 USB 调试链路
+
+USB CDC 上电时处于关闭状态。OLED 主菜单的 `USB Debug → Start Debug` 启动串口，设备名为 `CCtrl USB Debug`，网页以 2000000 baud 连接。主控约 15 Hz 发送原始六轴、XZY、ZXZ、诊断与配置快照。USB 调试串口保持开启至设备重启；业务帧继续通过 RS232 输出。[USB 调试协议](USB_DEBUG_ZHCN.md)列出帧类型与配置命令。
+
+## 4. 统一输出协议（0x0302）
+
+### 4.1 帧结构
+
+```text
+SOF(0xA5) + data_length(2) + sequence(1) + CRC8(1)
++ cmd_id(0x0302, 2) + payload(30) + CRC16(2)
 ```
 
-`master_esp32s3` 为 ESP32-S3 主控；`encoder_node_atmega328p` 为 8 MHz ATmega328P 编码器节点；`encoder_node_ch32v006` 为 CH32V006 节点。主控使用 esptool，AVR 环境配置为 USBasp，CH32 环境配置为 WCH-Link。选择对应芯片、编程器和本机端口后，执行 `pio run -e <环境名> -t upload`。
+多字节整数采用小端序。`data_length` 固定为 30；`sequence` 为模 256 递增的单字节帧序号。
 
-| PlatformIO 环境 | 对应硬件 | 编程方式 | 主要功能 |
+### 4.2 30 字节载荷定义
+
+| 偏移 | 长度 | 字段 | 类型 | 内容 |
+|---:|---:|---|---|---|
+| 0 | 1 | `diagnostic_flags` | `uint8` | 系统状态、超时和警告 |
+| 1 | 1 | `node_valid_flags` | `uint8` | A1–A6 与 Handle 有效位 |
+| 2 | 1 | `main_buttons` | `uint8` | 主控 KEY1–KEY4 单击、双击事件 |
+| 3 | 1 | `handle_buttons` | `uint8` | S1–S4 状态 |
+| 4–9 | 6 | `encoder_status[6]` | `uint8[6]` | 六个编码器的采样状态 |
+| 10–21 | 12 | `encoder_value[6]` | `int16[6]` | 六个校准后的关节计数 |
+| 22–27 | 6 | `joystick_x/y`, `trigger` | `uint16[3]` | 手柄模拟量，范围 0–4095 |
+| 28–29 | 2 | `reserved` | `uint16` | 当前为 0 |
+
+### 4.3 状态与有效位
+
+`diagnostic_flags` 的 bit0–1 表示 `INIT`、`ACTIVE`、`DEGRADED`、`DISCONNECTED`；bit2 表示链路超时；bit3–6 依次表示 CRC、格式、磁场和节点数量警告。`node_valid_flags` 的 bit0–5 对应 A1–A6，bit6 对应 Handle。采样中断时数值字段保留最近一次有效值，有效位与诊断字段反映当前状态。
+
+### 4.4 关节计数
+
+每轴校准后的范围为 `-2048…2047`，一圈为 4096 计数。角度为 `encoder_value × 360 / 4096` 度。校准零位的正对侧是 `2047/-2048` 环形折返点。`encoder_status` 的 bit0 表示 I2C 通信、bit1 表示检测到磁铁、bit2/3 表示磁场过弱/过强、bit4 表示数据过期。正常且检测到磁铁时状态值为 `0x03`。
+
+完整字段、CRC 算法和示例帧见[串口协议](SERIAL_PROTOCOL_ZHCN.md)。两版 CCtrl 均使用命令号 `0x0302`，CCtrl-V2 的接收格式由本节的 30 字节载荷定义。
+
+## 5. 输出语义
+
+### 5.1 六轴与腕部
+
+A1–A3 为主体关节，A4–A6 为腕部关节。OLED `Options → Wrist` 的 `XZY` 模式直接输出校准后的 A4–A6；`ZXZ` 模式将同一腕部姿态转换为另一组欧拉角。转换约定为 `Rx(-A4)·Rz(A5)·Ry(-A6) = Rz(α)·Rx(β)·Rz(γ)`。ZXZ 在 β 接近 0° 或 180° 时使用连续分支跟踪；腕部表示的选择保存在 NVS 中。
+
+### 5.2 按键与模拟量
+
+`main_buttons` 低四位是 KEY1–KEY4 的单击事件，高四位是同一组物理键的双击事件。固件使用 20 ms 去抖、300 ms 双击窗口、160 ms 事件脉冲和 200 ms 同键不应期。`handle_buttons` 的 bit0–2 对应 S1–S3；bit3 为扳机产生的 S4，行程达到 80% 时置位，降到 50% 以下时清除。
+
+摇杆 X/Y 与扳机范围为 0–4095，摇杆中心为 2048。主控对摇杆原始 ADC 值进行分段线性映射，Y 轴在映射后反向。校准常数见[Handle 摇杆校准](JOYSTICK_CALIBRATION_ZHCN.md)。
+
+### 5.3 上电休息位姿
+
+`Options → RestGuard` 保存下次上电的保护开关。保护启用时，设备进入已保存的六轴休息区域并稳定 500 ms 之前，RS232 输出保存的标准休息位姿，系统状态为 `DEGRADED`。A1、A5、A6 的进入/退出阈值为 ±30°/±35°；A2–A4 为 ±2°/±3°。位置条件与连续 500 ms 时间条件共同决定进入和退出。USB 页面保存当前六轴健康、新鲜的原始读数作为休息位姿。
+
+## 6. 设备侧配置与校准
+
+OLED `Calibration → Encoder_calibration` 包含 `Zero All 6`、A1–A6 的 `Reverse`、`Save` 与 `Reload`。`Zero All 6` 采集六路 Encoder 当前原始值，将当前位置设为下表的校准角。六路节点存在、I2C 正常且检测到磁铁时，固件将整组校准数据写入 NVS。
+
+| 轴 | `Zero All 6` 后当前位置 |
+|---|---:|
+| A1 | 0° |
+| A2 | +20°，约 228 计数 |
+| A3 | +60°，约 683 计数 |
+| A4–A6 | 0° |
+
+校准配置包含六路 offset 与 direction，以带版本和 CRC16 的完整 NVS Blob 保存。USB 调试页面显示原始计数、偏移、方向和补偿角度，并提供 0°、±90°、180° 与自定义单轴目标；页面通过带修订号与 CRC 的事务保存整组六轴配置。计算方法见[六路 Encoder 校准](CALIBRATION_ZHCN.md)。
+
+## 7. 上位机工具
+
+- [RS232 通道监视器](../tools/RS232_CHANNEL_MONITOR_ZHCN.md)：`python tools/rs232_channel_monitor.py`。显示协议字段、状态与曲线，并导出当前时间窗口的原始值 CSV。
+- [USB Web Serial 调试器](../tools/usb_robot_debug/README.md)：`python tools/usb_robot_debug/server.py`。本地页面位于 `http://127.0.0.1:8768`，显示原始六轴、XZY/ZXZ、诊断、校准与休息位姿。
+- [协议参考解析](../tools/protocol_v2.py)：Python 实现的 RS232 帧解析与 CRC 校验。
+
+工具目录与功能见[调试工具](CCtrl-v2_Debug_Tools_ZHCN.md)。
+
+## 8. 构建与烧录
+
+[`platformio.ini`](../platformio.ini) 定义三个固件环境：
+
+| 环境 | 硬件 | 编程协议 | 构建命令 |
 |---|---|---|---|
-| `master_esp32s3` | ESP32-S3 主板 | esptool | 总线轮询、OLED、校准、RS232 与 USB 调试 |
-| `encoder_node_atmega328p` | ATmega328P 编码器节点 | USBasp | AS5600 角度采样与链路转发 |
-| `encoder_node_ch32v006` | CH32V006 节点 | WCH-Link | 按传感器识别结果运行 Encoder 或 Handle 模式 |
+| `master_esp32s3` | ESP32-S3 主板 | esptool | `pio run -e master_esp32s3` |
+| `encoder_node_atmega328p` | 8 MHz ATmega328P 编码器节点 | USBasp | `pio run -e encoder_node_atmega328p` |
+| `encoder_node_ch32v006` | CH32V006 节点 | WCH-Link | `pio run -e encoder_node_ch32v006` |
 
-烧录多个同型节点时，对每块板写入同一节点固件；A1–A6 的分配由上电后的链路枚举顺序确定。更换节点顺序或连接位置后，重新检查轴号、方向和校准值。
+PlatformIO 的上传目标为 `pio run -e <环境名> -t upload`。固件文件、依赖和运行职责见[嵌入式固件](CCtrl-v2_Embedded_Firmware_ZHCN.md)。
 
-同一条 V2 链路的节点运行 V2 固件。编码器按枚举时出现的物理顺序映射到 A1–A6；Handle 可插入链路而不占用 Encoder 序号。上电后从屏幕或监视器确认六路都有新鲜有效值。
+## 9. 项目资料与验证
 
-## 4. 首次上电与检查
-
-1. 在断电状态下核对主板、六个节点、手柄节点的供电和串口方向；检查滑环连接和线束活动余量。
-2. 上电后查看 OLED 的 `Monitor` 和 `Debug`：确认节点数量、有效位、磁场状态及通信错误。`Debug` 包含超时、CRC、格式、磁场、节点数警告和累计计数。
-3. 逐轴缓慢移动，确认 A1–A6 的数值分别变化、方向符合预期。AS5600 一圈为 4096 计数；如果节点报告磁场异常，应先调整磁铁与传感器位置。
-4. 在整机允许的姿态下执行第 5 节的六轴校准。对接机械臂前，先用 RS232 监视器检查帧和数值，确认接收端的急停与行程限制独立有效。
-
-采样暂时中断时，主控继续发送最近一次有效数值；接收端结合 `node_valid_flags` 与系统状态判断链路状态。
-
-正常检查时，六个 Encoder 的有效位应对应 `node_valid_flags` 的 bit0–bit5。接入 Handle 后，bit6 表示手柄数据有效。`encoder_status` 正常且检测到磁铁时为 `0x03`。移动某一关节时，观察对应轴的计数连续变化；一整圈对应 4096 计数，显示数值在零位对侧跨越有符号范围边界。节点的 STAT 灯在枚举后每 5 秒按 `node_id+1` 次数闪烁，可用来核对物理节点顺序；ERR 灯的含义见[节点协议](PROTOCOL_V2.md#节点-led)。
-
-## 5. 六轴校准
-
-OLED 菜单路径为 `Calibration → Encoder_calibration`。其中 `Zero All 6` 在六路 Encoder 均存在、I2C 正常且检测到磁铁时采集当前原始值并整体保存。它将当前位置标定为 A1=0°、A2=+20°、A3=+60°、A4=0°、A5=0°、A6=0°。A1–A6 各有 `Reverse` 选项；改变方向后使用 `Save` 保存，`Reload` 可重载已存配置。固件将 offset 与 direction 作为带版本和 CRC 的完整 NVS 数据保存，校验失败时拒绝整组数据。
-
-逐轴指定目标时，启动第 8 节的 USB 页面。页面显示原始计数、偏移、方向和补偿后角度；可选择 0°、±90°、180° 或输入自定角度。点击保存后提交完整校准事务。`+180°` 与 `-180°` 视为同一位置。一圈输出范围为 -2048…2047，零位对侧存在环形折返点。详见[校准说明](CALIBRATION_ZHCN.md)。
-
-例如，把机械机构放在规定的基准姿态后执行 `Zero All 6`，这一姿态的 A2 显示约 228 计数，A3 显示约 683 计数，其余四轴显示 0。这里的数值是固件设定的基准角；关节实际安装方向通过各轴 `Reverse` 调整。保存后重新上电，再回到相同姿态检查六轴数值，可确认 NVS 中的校准已载入。
-
-调整单轴时，先观察原始角度随实际正向运动的变化，再确定 `Reverse`，最后在目标物理姿态写入目标角度。校准计算在模 4096 范围内进行，输出以 `-2048…2047` 表示；越过零位对侧时出现从 2047 到 -2048 的环形跳变。对接端按旋转角处理这个边界。更换磁铁位置、编码器板或关节传动关系后，重新执行对应轴的检查与校准。
-
-## 6. 休息位姿与腕部输出
-
-`Options → RestGuard` 设置下次上电是否启用休息位姿保护。使用 USB 页面可将当前六路健康、新鲜的原始读数保存为休息位姿。启用保护时，上电后主控在设备进入保存区域并稳定 500 ms 前向 RS232 发送保存的标准休息位姿，系统状态为 `DEGRADED`。接收端可据此区分保护输出与实时关节位置。
-
-休息区域采用角度及时间迟滞：A1、A5、A6 进入阈值 ±30°、退出阈值 ±35°；A2–A4 分别为 ±2°、±3°；进入和退出均需连续 500 ms 满足条件。OLED `Options → Wrist` 选择并保存 RS232 的 A4–A6 表示：`XZY` 直接输出校准值；`ZXZ` 表示同一姿态的另一组欧拉角。转换按右手系内禀主动旋转约定 `Rx(-A4)·Rz(A5)·Ry(-A6) = Rz(α)·Rx(β)·Rz(γ)`。ZXZ 在 β 接近 0° 或 180° 时有奇异性，固件采用连续分支跟踪和渐进恢复；详见[串口协议](SERIAL_PROTOCOL_ZHCN.md)。切换表示不改变节点原始读数或保存的校准。
-
-保存休息位姿时，先让六轴都进入预期停放位置，在 USB 页面确认六路状态健康，再执行保存。启用 `RestGuard` 后，接收端可以用 `DEGRADED` 状态识别启动保护阶段；设备进入保存区域并满足稳定时间后，系统恢复按实时采样输出。关节 A5 的 XZY 输入在接近机械边界时采用渐近限位，相关角度约定与 ZXZ 奇异区行为见[串口协议第 3.5 节](SERIAL_PROTOCOL_ZHCN.md#35-encoder-数值口径)。
-
-## 7. 按键与手柄
-
-主控 KEY1–KEY4 在普通模式下产生单击或双击事件：20 ms 去抖、300 ms 双击窗口、160 ms 对外事件脉冲，判定后同键有 200 ms 不应期。`main_buttons` 低四位为 KEY1–KEY4 单击，高四位为同一组物理键的双击（对外可称 KEY5–KEY8）；双击只触发对应高位。三个导航键负责菜单操作。磁贴菜单模式使用 KEY1–KEY4 的直接电平行为。
-
-Handle 提供 S1、S2、摇杆按键 S3 和虚拟 S4。S4 由磁感应扳机行程产生：达到 80% 时置位，低于 50% 时清除。摇杆 X/Y 和扳机对外范围为 0…4095；摇杆中心为 2048，Y 轴已在主控中反向。零件、供电或机械限位改变后，应重新核对摇杆与扳机的实际行程。
-
-`main_buttons` 是短时事件位。接收端在看到事件位后执行一次对应动作；双击事件使用同一物理键的高四位。`handle_buttons` 的 S1–S3 则表示按下电平，S4 带 80%/50% 的行程迟滞。摇杆使用中心死区与两侧独立线性映射，具体采样范围见[摇杆校准](JOYSTICK_CALIBRATION_ZHCN.md)。
-
-## 8. 必要上位机
-
-### RS232 通道监视器
-
-经 RS232 转接设备连接电脑，使用 115200 8N1。安装 Python 3、Tkinter 与 pyserial，在根目录运行：
-
-```powershell
-python tools/rs232_channel_monitor.py
-```
-
-窗口可选择串口、查看六轴与状态、绘制曲线、暂停和导出 CSV。也可使用 `tools/start_rs232_channel_monitor.bat`。它解析固定 39 字节 RoboMaster `0x0302` 帧；详细字段见[串口协议](SERIAL_PROTOCOL_ZHCN.md)。
-
-联调时可先勾选六轴通道，缓慢移动单轴并观察曲线与 `node_valid_flags`。随后检查摇杆两轴是否在中心回到 2048、扳机两端是否接近 0 和 4095，并分别按下 S1–S3、主控 KEY1–KEY4。需要记录时选择时间窗口，导出的 CSV 保存原始协议数值，便于与接收端日志逐帧比较。
-
-### USB 调试与校准页面
-
-每次上电 USB CDC 默认关闭。从 OLED 主菜单进入 `USB Debug → Start Debug`，随后用数据线连接电脑；该次运行中保持开启，重启后重新关闭。执行：
-
-```powershell
-python tools/usb_robot_debug/server.py
-```
-
-用支持 Web Serial 的 Chrome 或 Edge 访问 <http://127.0.0.1:8768>，选择 `CCtrl USB Debug` 串口。网页展示原始六轴、XZY、ZXZ、诊断、校准和休息位姿，并可提交配置。USB 承载调试协议，业务帧经 RS232 输出。详情见 [USB 调试协议](USB_DEBUG_ZHCN.md)。
-
-USB 页面适合在校准前后对照原始读数、补偿角度和两种腕部表示。页面修改校准参数时先形成候选值，点击保存后通过带修订号与 CRC 的事务提交整组六轴配置。保存休息位姿时，页面会读取当前原始位置及状态。结束调试后重启设备，USB CDC 恢复上电默认状态。
-
-## 9. RS232 对接要点
-
-业务帧固定 39 字节：`0xA5` 帧头、30 字节 payload、`0x0302` 命令号以及 CRC8/CRC16。载荷包括系统诊断、节点有效位、主控及手柄按键、六路编码器状态和有符号计数、摇杆、扳机。角度换算为 `计数 × 360 / 4096` 度。接收端应按[完整字段表及示例](SERIAL_PROTOCOL_ZHCN.md)解析和重同步，并在通信超时、节点无效、系统降级时进入自身定义的安全状态。
-
-接收程序可按以下顺序处理每帧：
-
-1. 从字节流定位 `0xA5`，检查 payload 长度为 30，并验证帧头 CRC8。
-2. 收齐 39 字节后，核对命令号 `0x0302` 与整帧 CRC16；使用模 256 的 `sequence` 检查丢帧。
-3. 提取 `diagnostic_flags` 与 `node_valid_flags`，确定当前系统状态以及每路关节数据的有效性。
-4. 在有效轴上读取有符号小端 `int16` 计数，并按接收端的机械零位、比例与方向映射为目标关节角。
-5. 按所选 Wrist 模式解释 A4–A6，结合机械臂自身的速度、行程和失联处理规则执行命令。
-
-例如计数 `1024` 对应 +90°，计数 `-1024` 对应 -90°。RS232 的 `0x0302` 命令号沿用原版，但载荷结构按本版 30 字节字段表解析。`system_status` 取值为 INIT、ACTIVE、DEGRADED、DISCONNECTED；休息位姿保护阶段显示 DEGRADED，接收端可同时查看六轴有效位和错误位来区分具体情况。
-
-## 10. 常见问题
-
-| 现象 | 先检查 |
+| 资料 | 内容 |
 |---|---|
-| 某轴无效或磁场警告 | 节点供电、AS5600 I2C、磁铁间距及同轴度；查看 `encoder_status` 的检测、弱场和过期位 |
-| 节点数量变化 | 菊花链方向、插头、滑环通道及接触稳定性；先从 `Debug` 看节点数警告 |
-| 角度方向相反 | 检查机械安装与对应轴的 `Reverse` 设置，保存后重读确认 |
-| 上电输出停在休息位姿 | 检查 `RestGuard`、已保存休息姿态和六轴有效位；按第 6 节进入休息区域并稳定 500 ms |
-| RS232 工具无帧 | 确认连接的是 RS232 而非 USB 调试串口，检查 115200 8N1、转接器和供电 |
-| USB 页面找不到设备 | 先在 OLED 手动启动 `USB Debug`，确认数据线、浏览器 Web Serial 权限和 2,000,000 baud |
-| 腕部 ZXZ 数值突变 | 检查奇异区和轴向约定，切回 XZY 比较原始校准值；两种欧拉表示描述同一整体姿态 |
-| 扳机或摇杆行程偏小 | 查看原始 ADC 和磁传感器读数，检查手柄机械行程、供电与传感器安装，再按[摇杆校准](JOYSTICK_CALIBRATION_ZHCN.md)核对映射 |
-| CRC 或格式警告增加 | 检查菊花链方向、串口速率、连接器、滑环通道和电气接触，逐段缩短链路定位问题 |
+| [硬件工程资料](CCtrl-v2_Hardware_Engineering_ZHCN.md) | 主板、手柄模块 v2、带滑环的编码器节点板和滑环电刷的 JLCEDA Pro 工程 |
+| [机械模型](CCtrl-v2_Mechanical_Models_ZHCN.md) | 完整装配 STEP、局部改进替换件 STEP 和透明封面图 |
+| [节点协议](PROTOCOL_V2.md) | 枚举、轮询、节点记录、状态与 LED |
+| [对外串口协议](SERIAL_PROTOCOL_ZHCN.md) | 39 字节帧、30 字节载荷与字段解释 |
 
-## 11. 验证记录
-
-三个 PlatformIO 固件环境已完成构建。协议测试 12 项、休息位姿与腕部转换的 C++ 测试，以及 USB 调试页帧解析自检均已通过。
+项目源码的三个 PlatformIO 环境已完成构建。协议解析测试 12 项、休息位姿与腕部转换的 C++ 测试，以及 USB 帧解析自检均已通过。

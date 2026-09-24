@@ -1,10 +1,10 @@
-# CCtrl-v2
+# CCtrl-V2
 
 ![CCtrl-v2 render](hardware/mechanical/renders/CCtrl-v2-cover.png)
 
-[简体中文](README.md) · [User manual (Chinese)](docs/CCtrl-v2_User_Manual_ZHCN.md) · [RS232 protocol (Chinese)](docs/SERIAL_PROTOCOL_ZHCN.md)
+[简体中文](README.md) · [User manual](docs/CCtrl-v2_User_Manual_EN.md) · [RS232 protocol](docs/SERIAL_PROTOCOL_ZHCN.md)
 
-CCtrl-v2 is a joint-space teleoperation controller for a six-degree-of-freedom serial robot arm whose first two links have equal length. Six magnetic encoders measure joints A1–A6; a handle node supplies a joystick, buttons, and a magnetic trigger. An ESP32-S3 master handles node polling, calibration, the OLED menu, wrist-orientation representation, and output. The robot-side controller must apply its own geometry, zero positions, direction conventions, and safety limits.
+CCtrl-v2 is a joint-space teleoperation controller for a six-degree-of-freedom serial robot arm whose first two links have equal length. Six magnetic encoders measure joints A1–A6; a handle node supplies a joystick, buttons, and a magnetic trigger. An ESP32-S3 master handles node polling, calibration, the OLED menu, wrist-orientation representation, and output. The robot-side controller maps those values to its geometry, zero positions, direction conventions, and motion limits.
 
 ## Relationship to CCtrl
 
@@ -23,26 +23,19 @@ Both versions use command ID `0x0302`; receiving software selects the correspond
 
 | Area | File |
 |---|---|
-| Operation, calibration, troubleshooting | [Detailed user manual (Chinese)](docs/CCtrl-v2_User_Manual_ZHCN.md) |
-| Node-chain protocol | [Protocol V2](docs/PROTOCOL_V2.md) |
-| External RS232 protocol | [Serial protocol (Chinese)](docs/SERIAL_PROTOCOL_ZHCN.md) |
-| Electronics and CAD | [Hardware guide](hardware/README.md) |
-| RS232 channel monitor | [Monitor guide](tools/RS232_CHANNEL_MONITOR_ZHCN.md) |
-| USB Web Serial calibration/debugging | [USB debugger guide](tools/usb_robot_debug/README.md) |
+| User manual | [English](docs/CCtrl-v2_User_Manual_EN.md) · [中文](docs/CCtrl-v2_User_Manual_ZHCN.md) |
+| Embedded firmware | [English](docs/CCtrl-v2_Embedded_Firmware_EN.md) · [中文](docs/CCtrl-v2_Embedded_Firmware_ZHCN.md) |
+| Hardware engineering | [English](docs/CCtrl-v2_Hardware_Engineering_EN.md) · [中文](docs/CCtrl-v2_Hardware_Engineering_ZHCN.md) |
+| Mechanical models | [English](docs/CCtrl-v2_Mechanical_Models_EN.md) · [中文](docs/CCtrl-v2_Mechanical_Models_ZHCN.md) |
+| Debug tools | [English](docs/CCtrl-v2_Debug_Tools_EN.md) · [中文](docs/CCtrl-v2_Debug_Tools_ZHCN.md) |
+| Protocol and calibration details | [Node protocol](docs/PROTOCOL_V2.md) · [RS232 protocol](docs/SERIAL_PROTOCOL_ZHCN.md) · [Encoder calibration](docs/CALIBRATION_ZHCN.md) · [USB debug protocol](docs/USB_DEBUG_ZHCN.md) |
 
-Build the `master_esp32s3`, `encoder_node_atmega328p`, and `encoder_node_ch32v006` PlatformIO environments with `pio run`. CH32V006 firmware selects encoder or handle mode according to the detected sensor; the ATmega328P environment is for encoder nodes.
+`pio run` builds the `master_esp32s3`, `encoder_node_atmega328p`, and `encoder_node_ch32v006` PlatformIO environments. CH32V006 firmware selects Encoder or Handle mode according to the detected sensor; the ATmega328P environment is for Encoder nodes. The [firmware index](docs/CCtrl-v2_Embedded_Firmware_EN.md) lists the configured programmers.
 
-## Setup flow
+## Runtime structure
 
-1. Open the four-board project in JLCEDA Pro and review the assembly and replacement parts in CAD.
-2. Build and upload the master and node firmware. Connect six encoder nodes in joint order, along with the handle node.
-3. Check node discovery, magnet status, and axis validity on the OLED `Monitor` and `Debug` screens.
-4. Place the mechanism in its reference pose, run `Calibration → Encoder_calibration`, and verify each axis direction.
-5. Inspect the 39-byte RS232 output with the [channel monitor](tools/RS232_CHANNEL_MONITOR_ZHCN.md). Use the [USB debugger](tools/usb_robot_debug/README.md) for individual-axis targets and the rest pose.
-6. Implement joint mapping and motion handling on the robot side using the [CCtrl-v2 serial payload](docs/SERIAL_PROTOCOL_ZHCN.md).
+The physical order of the six Encoder nodes maps to A1–A6; the Handle has separate fields. The OLED `Monitor` and `Debug` screens display node, magnet, and communication status. `Calibration → Encoder_calibration` stores six-axis calibration. RS232 emits fixed 39-byte joint and handle frames. The [channel monitor](tools/RS232_CHANNEL_MONITOR_ZHCN.md) displays these fields, while the [USB debugger](tools/usb_robot_debug/README.md) shows raw samples, both wrist representations, and configuration. The [user manual](docs/CCtrl-v2_User_Manual_EN.md) defines the complete workflow.
 
-The [user manual](docs/CCtrl-v2_User_Manual_ZHCN.md) covers assembly, calibration, operation, and troubleshooting in detail.
-
-The electronics are supplied as a four-board **JLCEDA Pro** project, from which manufacturing outputs can be exported. Mechanical assets include a full-assembly STEP, an improved replacement-parts STEP, and a transparent cover render. Check the replacement-part correspondence and fits in CAD during assembly.
+The electronics are supplied as a four-board **JLCEDA Pro** project, from which manufacturing outputs can be exported. Mechanical assets include a full-assembly STEP, an improved replacement-parts STEP, and a transparent cover render. Corresponding parts are identified by geometry and assembly position in the two STEP models.
 
 The project uses the [MIT license](LICENSE). The UI adapts work from [RQNG/WouoUI](https://github.com/RQNG/WouoUI).
