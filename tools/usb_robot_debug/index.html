@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="CCtrl ESP32 Web Serial 校准与双姿态调试器">
+  <title>CCtrl USB 调试器</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<main class="shell">
+  <header>
+    <div><p class="eyebrow">CCTRL / USB DEBUG</p><h1>USB 校准与姿态调试器</h1><p class="subtitle">ESP32 同步输出控制器 XZY 与机械臂 ZXZ；网页仅展示设备计算结果</p></div>
+    <div class="header-actions"><button id="demoBtn" class="ghost" type="button">演示数据</button><button id="connectBtn" class="primary" type="button">连接设备</button></div>
+  </header>
+
+  <section class="statusbar card">
+    <div class="connection"><i id="statusDot"></i><strong id="statusText">未连接</strong></div>
+    <div class="telemetry"><span>RATE <b id="rateValue">0.0</b> Hz</span><span>SEQ <b id="seqValue">--</b></span><span>VALID <b id="validValue">00</b></span><span>LAT <b id="latencyValue">0</b> μs</span></div>
+    <div class="state-pills"><span id="errorPill">ERROR 00</span><span id="restPill">休息区域：否</span><span id="guardPill">上电保护：ON</span></div>
+  </section>
+
+  <section class="joint-section card">
+    <div class="section-head"><div><p class="eyebrow">ENCODER CALIBRATION</p><h2>六关节校准</h2></div><div class="save-actions"><button id="reloadBtn" class="ghost" type="button">重新读取</button><button id="saveBtn" class="primary" type="button">保存到 ESP32</button></div></div>
+    <div class="joint-table-wrap"><table><thead><tr><th>关节</th><th>状态</th><th>原始值</th><th>当前补偿值</th><th>方向</th><th>补偿后角度</th><th>校准当前位置到</th></tr></thead><tbody id="jointRows"></tbody></table></div>
+    <p class="hint">所有修改先在页面形成候选配置，点击保存后才以单个事务写入 ESP32。180°为同一语义，不区分 +180°与 −180°。</p>
+  </section>
+
+  <section class="view-grid">
+    <article class="viewer card"><div class="viewer-head"><div><span class="marker controller">A</span><h2>控制器</h2></div><div><strong>XZY</strong><span>ESP32 结果</span></div></div><canvas id="xzyCanvas"></canvas><div id="xzyValues" class="wrist-values"></div></article>
+    <article class="viewer card"><div class="viewer-head"><div><span class="marker robot">B</span><h2>机械臂</h2></div><div><strong>ZXZ</strong><span>ESP32 结果</span></div></div><canvas id="zxzCanvas"></canvas><div id="zxzValues" class="wrist-values"></div></article>
+  </section>
+
+  <section class="diagnostics card">
+    <div><p class="eyebrow">DIAGNOSTICS</p><h2>状态与输入</h2></div>
+    <div class="diag-grid"><div><span>控制器状态</span><strong id="controllerState">INIT</strong></div><div><span>警告</span><strong id="warningValue">00</strong></div><div><span>主机按键 K8…K1</span><strong id="mainButtons">00000000</strong></div><div><span>手柄按键</span><strong id="handleButtons">0000</strong></div><div><span>摇杆 X / Y</span><strong id="joystickValue">0 / 0</strong></div><div><span>扳机</span><strong id="triggerValue">0</strong></div><div><span>丢失轮询</span><strong id="lostValue">0</strong></div><div><span>USB</span><strong id="usbValue">未连接</strong></div></div>
+    <div class="rest-actions"><label><input id="guardToggle" type="checkbox" checked> 启用上电休息位姿保护</label><button id="setRestBtn" class="danger" type="button">将当前位姿设为休息位姿</button></div>
+  </section>
+
+  <p class="footnote">Web Serial · 2,000,000 baud · Protocol 1 · 15 Hz telemetry · 4096 counts/rev</p>
+</main>
+<script type="module" src="./app.mjs"></script>
+</body>
+</html>

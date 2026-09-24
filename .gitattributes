@@ -1,0 +1,16 @@
+* text=auto
+
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+*.c text eol=lf
+*.h text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.ini text eol=lf
+
+# CAD and JLCEDA archives must retain their original bytes.
+*.step binary
+*.epro2 binary

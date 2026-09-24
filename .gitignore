@@ -1,0 +1,28 @@
+# Local archive is intentionally excluded from the CCtrl-v2 release.
+/archive/
+
+# Generated build, editor, and Python files.
+.pio/
+.pioenvs/
+.piolibdeps/
+.pio_home/
+.pio-core/
+.platformio_local/
+.vscode/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.cache/
+.clangd
+*.log
+*.tmp
+*.bak
+compile_commands.json
+src/**/build/
+src/**/output/
+
+# Legacy local checkout and historical capitalization.
+/328P-START/
+/Archive/
